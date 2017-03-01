@@ -135,7 +135,7 @@ int main(int argc, char* argv[])
 				{
 					cerr << "Error: " << WSAGetLastError() << endl;
 				}
-				else
+				else if (ret > 0)
 				{
 					buffer[ret] = 0;
 
