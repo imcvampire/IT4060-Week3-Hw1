@@ -3,8 +3,10 @@
 #include<iostream>
 #include<string>
 #include<cstdbool>
+#include<fstream>
 
 #include"Users.h"
+#include <vector>
 
 using namespace std;
 
@@ -17,26 +19,116 @@ const char WRONG_PASSWORD[] = "You have typed password. Please retry!";
 const char ASK_PASSWORD[] = "Password: ";
 const char SUCCESS[] = "Success!";
 
-boolean verify_username(char* username)
+typedef struct
 {
-	for (int i = 0; i < size(USERS); i++)
+	char type[5];
+	char payload[1000];
+} message;
+
+const char MESSAGE_USER[] = "USER";
+const char MESSAGE_PASS[] = "PASS";
+const char MESSAGE_LOGOUT[] = "LOUT";
+
+const int MESSAGE_SIZE = sizeof(message);
+
+typedef struct
+{
+	boolean is_authenticated = false;
+	boolean is_waiting_password = false;
+	string username;
+	string password;
+} user;
+
+boolean get_users_list(vector<user> user_list)
+{
+	ifstream file("Users.txt");
+	if (file.is_open())
 	{
-		if (strcmp(username, USERS[i][0])) return true;
+		while (!file.eof())
+		{
+			user user;
+
+			string username, password;
+			file >> username >> password;
+
+			user.username = username;
+			user.password = password;
+
+			user_list.push_back(user);
+		}
+
+		return true;
 	}
+
 	return false;
 }
 
-boolean verify_password(char* username, char* password)
+//	<returns>
+//		0: user found
+//		1: user not found
+//		-1: error
+//	</returns>
+int verify_username(string username, vector<user> users_list)
 {
-	for (int i = 0; i < size(USERS); i++)
+	for (user user : users_list)
 	{
-		if (strcmp(username, USERS[i][0]))
+		if (user.username == username)
 		{
-			if (strcmp(password, USERS[i][1])) return true;
-			return false;
+			if (user.is_authenticated)
+			{
+				return 1;
+			}
+			else
+			{
+				user.is_waiting_password = true;
+				return 0;
+			}
 		}
 	}
-	return false;
+	return -1;
+}
+
+//	<returns>
+//		1: wrong user
+//		0: logined
+//		-1: error
+//	</returns>
+int verify_password(string password, vector<user> users_list)
+{
+	for (user user : users_list)
+	{
+		if (user.password == password)
+		{	
+			if (user.is_waiting_password)
+			{
+				user.is_authenticated = true;
+				user.is_waiting_password = false;
+				return 0;
+			}
+			else
+			{
+				return 1;
+			}
+		}
+	}
+	return -1;
+}
+
+//	<returns>
+//		0: successed
+//		1: error
+//	</returns>
+int logout(string username, vector<user> users_list)
+{
+	for (user user : users_list)
+	{
+		if (user.username == username)
+		{
+			user.is_authenticated = false;
+			return 0;
+		}
+	}
+	return 1;
 }
 
 int main(int argc, char* argv[])
@@ -95,9 +187,16 @@ int main(int argc, char* argv[])
 
 	cout << "Server started!" << endl;
 
+	vector<user> users_list;
+	if (!get_users_list(users_list))
+	{ 
+		cerr << "Can not read users list" << endl;
+
+		return 1;
+	}
+
 	sockaddr_in client_addr;
-	char buffer_username[BUFFER_SIZE];
-	char buffer_password[BUFFER_SIZE];
+	char buffer[MESSAGE_SIZE];
 	int ret;
 	int client_addr_len = sizeof(client_addr);
 
@@ -105,7 +204,7 @@ int main(int argc, char* argv[])
 	{
 		SOCKET connect_socket = accept(listen_socket, (sockaddr *) &client_addr, &client_addr_len);
 
-		ret = recv(connect_socket, buffer_username, BUFFER_SIZE, 0);
+		ret = recv(connect_socket, buffer, MESSAGE_SIZE, 0);
 
 		if (ret == SOCKET_ERROR)
 		{
@@ -113,42 +212,74 @@ int main(int argc, char* argv[])
 		}
 		else if (ret > 0)
 		{
-			buffer_username[ret] = 0;
+			message client_message;
+			memcpy(buffer, &client_message, MESSAGE_SIZE);
 
-			if (verify_username(buffer_username))
+			if (client_message.type == MESSAGE_USER)
 			{
-				ret = send(listen_socket, ASK_PASSWORD, strlen(ASK_PASSWORD), 0);
+				string username(client_message.payload);
 
-				if (ret == SOCKET_ERROR)
+				int result = verify_username(username, users_list);
+				if (result == 0)
 				{
-					cerr << "Can not ask client password! Error: " << WSAGetLastError() << endl;
-				}
-				else if (ret > 0)
-				{
-					ret = recv(listen_socket, buffer_password, BUFFER_SIZE, 0);
-
-					if (ret == SOCKET_ERROR)
+					if (send(connect_socket, ASK_PASSWORD, sizeof(ASK_PASSWORD), 0) == SOCKET_ERROR)
 					{
-						cerr << "Can not receive password from client! Error: " << WSAGetLastError() << endl;
+						cerr << "Error: " << WSAGetLastError() << endl;
 					}
-					else if (ret > 0)
+				}
+				else if (result == 1)
+				{
+					if (send(connect_socket, USER_NOT_FOUND, sizeof(USER_NOT_FOUND), 0) == SOCKET_ERROR)
 					{
-						buffer_password[0] = 0;
-
-						if (verify_password(buffer_username, buffer_password))
-						{
-							send(listen_socket, SUCCESS, strlen(SUCCESS), 0);
-						}
-						else
-						{
-							send(listen_socket, WRONG_PASSWORD, strlen(WRONG_PASSWORD), 0);
-						}
+						cerr << "Error: " << WSAGetLastError() << endl;
+					}
+				}
+				else
+				{
+					if (send(connect_socket, MY_ERROR, sizeof(MY_ERROR), 0) == SOCKET_ERROR)
+					{
+						cerr << "Error: " << WSAGetLastError() << endl;
 					}
 				}
 			}
-			else
+			else if (client_message.type == MESSAGE_PASS)
 			{
-				send(listen_socket, USER_NOT_FOUND, strlen(USER_NOT_FOUND), 0);
+				string password(client_message.payload);
+
+				int result = verify_password(password, users_list);
+				if (result == 0)
+				{
+					if (send(connect_socket, SUCCESS, sizeof(SUCCESS), 0) == SOCKET_ERROR)
+					{
+						cerr << "Error: " << WSAGetLastError() << endl;
+					}
+				}
+				else
+				{
+					if (send(connect_socket, WRONG_PASSWORD, sizeof(WRONG_PASSWORD), 0) == SOCKET_ERROR)
+					{
+						cerr << "Error: " << WSAGetLastError() << endl;
+					}
+				}
+			}
+			else if (client_message.type == MESSAGE_LOGOUT)
+			{
+				string username(client_message.payload);
+
+				if (logout(username, users_list) == 0)
+				{
+					if (send(connect_socket, SUCCESS, sizeof(SUCCESS), 0) == SOCKET_ERROR)
+					{
+						cerr << "Error: " << WSAGetLastError() << endl;
+					}
+				}
+				else
+				{
+					if (send(connect_socket, USER_NOT_FOUND, sizeof(USER_NOT_FOUND), 0) == SOCKET_ERROR)
+					{
+						cerr << "Error: " << WSAGetLastError() << endl;
+					}
+				}
 			}
 		}
 
