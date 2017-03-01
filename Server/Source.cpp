@@ -4,9 +4,7 @@
 #include<string>
 #include<cstdbool>
 #include<fstream>
-
-#include"Users.h"
-#include <vector>
+#include<vector>
 
 using namespace std;
 
@@ -39,30 +37,7 @@ typedef struct
 	string password;
 } user;
 
-boolean get_users_list(vector<user> user_list)
-{
-	ifstream file("Users.txt");
-	if (file.is_open())
-	{
-		while (!file.eof())
-		{
-			user user;
-
-			string username, password;
-			file >> username >> password;
-
-			user.username = username;
-			user.password = password;
-
-			user_list.push_back(user);
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
+// <summary>Verify username</summary>
 //	<returns>
 //		0: user found
 //		1: user not found
@@ -88,6 +63,7 @@ int verify_username(string username, vector<user> users_list)
 	return -1;
 }
 
+// <summary>Verify password</summary>
 //	<returns>
 //		1: wrong user
 //		0: logined
@@ -114,6 +90,7 @@ int verify_password(string password, vector<user> users_list)
 	return -1;
 }
 
+// <summary>Logout</summary>
 //	<returns>
 //		0: successed
 //		1: error
@@ -188,10 +165,26 @@ int main(int argc, char* argv[])
 	cout << "Server started!" << endl;
 
 	vector<user> users_list;
-	if (!get_users_list(users_list))
-	{ 
-		cerr << "Can not read users list" << endl;
+	ifstream file("Users.txt");
+	if (file.is_open())
+	{
+		// Read users' data
+		while (!file.eof())
+		{
+			user user;
 
+			string username, password;
+			file >> username >> password;
+
+			user.username = username;
+			user.password = password;
+
+			users_list.push_back(user);
+		}
+	}
+	else
+	{
+		cerr << "Can not open file!" << endl;
 		return 1;
 	}
 
@@ -213,6 +206,8 @@ int main(int argc, char* argv[])
 		else if (ret > 0)
 		{
 			message client_message;
+			
+			// Convert from char* to message 
 			memcpy(buffer, &client_message, MESSAGE_SIZE);
 
 			if (client_message.type == MESSAGE_USER)

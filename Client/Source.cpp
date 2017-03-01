@@ -15,6 +15,17 @@ const char WRONG_PASSWORD[] = "You have typed password. Please retry!";
 const char ASK_PASSWORD[] = "Password: ";
 const char SUCCESS[] = "Success!";
 
+typedef struct
+{
+	char type[5];
+	char payload[1000];
+} message;
+
+const char MESSAGE_USER[] = "USER";
+const char MESSAGE_PASS[] = "PASS";
+const char MESSAGE_LOGOUT[] = "LOUT";
+
+const int MESSAGE_SIZE = sizeof(message);
 
 int main(int argc, char* argv[])
 {
@@ -47,27 +58,33 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	// Start from first param
 	for (int i = 1; i < argc; ++i)
 	{
 		if (argv[i][0] != '-') continue;
 
 		switch (argv[i][1])
 		{
-		case 'a':
-			if (inet_pton(AF_INET, argv[i + 1], (void*) &(server_addr.sin_addr.s_addr)) != 1)
-			{
-				cerr << "Can not convert little-endian to big-endian" << endl;
+			case 'a':
+				if (inet_pton(AF_INET, argv[i + 1], (void*) &(server_addr.sin_addr.s_addr)) != 1)
+				{
+					cerr << "Can not convert little-endian to big-endian" << endl;
 
-				return 1;
-			}
+					return 1;
+				}
 
-			break;
+				break;
 
-		case 'p':
-			server_addr.sin_port = htons((u_short) stoi(argv[i + 1]));
-			break;
+			case 'p':
+				server_addr.sin_port = htons((u_short) stoi(argv[i + 1]));
+				break;
 		}
 	}
+
+	char buffer[MESSAGE_SIZE];
+	int ret;
+
+	string user_choose;
 
 	if (connect(client, (sockaddr *) &server_addr, sizeof(server_addr)))
 	{
@@ -76,89 +93,142 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	cout << "Connected!" << endl;
-
-	char buffer[BUFFER_SIZE];
-	int ret;
-
-	char username[BUFFER_SIZE];
-
-	cout << "Username: " << endl;
-	cin >> username;
-
-	ret = send(client, username, strlen(username), 0);
-	if (ret == SOCKET_ERROR)
+	for (;;)
 	{
-		cerr << "Error: " << WSAGetLastError() << endl;
-	}
-	else if (ret > 0)
-	{
-		ret = recv(client, buffer, BUFFER_SIZE, 0);
+		cout << "Connected!" << endl;
 
-		if (ret == SOCKET_ERROR)
+		cout << "Choose 1:\n"
+			<< "USER: enter username\n"
+			<< "PASS: enter password\n"
+			<< "LOUT: logout"
+			<< endl;
+		cin >> user_choose;
+
+		if (user_choose == MESSAGE_USER)
 		{
-			if (WSAGetLastError() == WSAETIMEDOUT)
-			{
-				cerr << "Timeout!" << endl;
-			}
-			else
+			string username;
+			cin >> username;
+
+			message client_message;
+
+			// Convert string to char*
+			const char* type = user_choose.c_str();
+			strcpy(client_message.type, type);
+
+			const char* payload = user_choose.c_str();
+			strcpy(client_message.payload, payload);
+
+			// Convert from struct message to char*
+			memcpy(buffer, &client_message, MESSAGE_SIZE);
+
+			ret = send(client, buffer, MESSAGE_SIZE, 0);
+
+			if (ret == SOCKET_ERROR)
 			{
 				cerr << "Error: " << WSAGetLastError() << endl;
 			}
-		}
-		else if (ret > 0)
-		{
-			buffer[ret] = 0;
-
-			if (strcmp(buffer, USER_NOT_FOUND))
+			else if (ret > 0)
 			{
-				cout << USER_NOT_FOUND << endl;
-			}
-			else if (strcmp(buffer, ASK_PASSWORD))
-			{
-				cout << ASK_PASSWORD << endl;
-
-				char password[BUFFER_SIZE];
-				cin >> password;
-
-				ret = send(client, password, strlen(password), 0);
+				ret = recv(client, buffer, MESSAGE_SIZE, 0);
 
 				if (ret == SOCKET_ERROR)
 				{
 					cerr << "Error: " << WSAGetLastError() << endl;
 				}
-				else if (ret > 0)
+				else
 				{
-					ret = recv(client, buffer, BUFFER_SIZE, 0);
+					buffer[ret] = 0;
 
-					if (ret == SOCKET_ERROR)
+					if (strcmp(buffer, ASK_PASSWORD) == 0)
 					{
-						if (WSAGetLastError() == WSAETIMEDOUT)
-						{
-							cerr << "Timeout!" << endl;
-						}
-						else
-						{
-							cerr << "Error: " << WSAGetLastError() << endl;
-						}
+						cout << "User found! Now you can entry password!" << endl;
 					}
-					else if (ret > 0)
+					else if (strcmp(buffer, USER_NOT_FOUND) == 0)
 					{
-						buffer[0] = 0;
+						cout << USER_NOT_FOUND << endl;
+					}
+					else
+					{
+						cout << MY_ERROR << endl;
+					}
+				}
+			}
+		}
+		else if (user_choose == MESSAGE_PASS)
+		{
+			string password;
+			cin >> password;
 
-						if (strcmp(buffer, WRONG_PASSWORD))
-						{
-							cerr << WRONG_PASSWORD << endl;
-						}
-						else if (strcmp(buffer, SUCCESS))
-						{
-							cout << SUCCESS << endl;
-						}
-						else
-						{
-							cerr << "Error!" << endl;
-						}
-					}
+			message client_message;
+
+			// Convert from string to char*
+			const char* type = user_choose.c_str();
+			strcpy(client_message.type, type);
+
+			const char* payload = user_choose.c_str();
+			strcpy(client_message.payload, payload);
+
+			// Convert from struct message to char*
+			memcpy(buffer, &client_message, MESSAGE_SIZE);
+
+			ret = send(client, buffer, MESSAGE_SIZE, 0);
+
+			if (ret == SOCKET_ERROR)
+			{
+				cerr << "Error: " << WSAGetLastError() << endl;
+			}
+			else if (ret > 0)
+			{
+				buffer[ret] = 0;
+
+				if (strcmp(buffer, SUCCESS) == 0)
+				{
+					cout << "Login successed!" << endl;
+				}
+				else if (strcmp(buffer, WRONG_PASSWORD) == 0)
+				{
+					cout << WRONG_PASSWORD << endl;
+				}
+				else 
+				{
+					cout << MY_ERROR << endl;
+				}
+			}
+		}
+		else if (user_choose == MESSAGE_LOGOUT)
+		{
+			string username;
+			cin >> username;
+
+			message client_message;
+
+			// Convert from string to char*
+			const char* type = user_choose.c_str();
+			strcpy(client_message.type, type);
+
+			const char* payload = user_choose.c_str();
+			strcpy(client_message.payload, payload);
+
+			// Convert struct message to char*
+			memcpy(buffer, &client_message, MESSAGE_SIZE);
+
+			ret = send(client, buffer, MESSAGE_SIZE, 0);
+
+			if (ret == SOCKET_ERROR)
+			{
+				cerr << "Error: " << WSAGetLastError() << endl;
+			}
+			else if (ret > 0)
+			{
+				buffer[ret] = 0;
+
+				if (strcmp(buffer, SUCCESS) == 0)
+				{
+					cout << "Logouted!" << endl;
+				}
+				else
+				{
+					cerr << "Error!" << endl;
 				}
 			}
 		}
